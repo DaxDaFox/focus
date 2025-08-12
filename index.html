@@ -12,6 +12,7 @@
     background: #111;
     color: #eee;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    overflow: hidden;
   }
   #container {
     text-align: center;
@@ -59,54 +60,237 @@
     margin-top: 2rem;
     user-select: none;
   }
+  #warning {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(255, 0, 0, 0.9);
+    color: white;
+    padding: 2rem;
+    border-radius: 15px;
+    font-size: 2rem;
+    text-align: center;
+    z-index: 9999;
+    display: none;
+    box-shadow: 0 0 50px rgba(255, 0, 0, 0.8);
+  }
 </style>
 </head>
 <body>
-
 <div id="container">
   <label for="minutes">Set time (minutes):</label>
   <input id="minutes" type="number" min="1" max="120" value="5" />
   <button id="startBtn">Start</button>
 </div>
-
 <div id="countdown" style="display:none;">00:00</div>
+<div id="warning">
+  <div>⚠️ LOCKDOWN ACTIVE ⚠️</div>
+  <div style="font-size: 1.2rem; margin-top: 1rem;">You cannot exit until timer ends!</div>
+</div>
 
 <script>
   const startBtn = document.getElementById('startBtn');
   const minutesInput = document.getElementById('minutes');
   const countdownEl = document.getElementById('countdown');
   const container = document.getElementById('container');
+  const warningEl = document.getElementById('warning');
   let countdownInterval;
   let endTime;
+  let isLockdownActive = false;
+  let forceFullscreenInterval;
+  let originalTitle = document.title;
+  
+  // Store timer state in sessionStorage to persist across tabs
+  function saveTimerState() {
+    if (isLockdownActive) {
+      sessionStorage.setItem('lockdownEndTime', endTime.toString());
+      sessionStorage.setItem('lockdownActive', 'true');
+    }
+  }
+  
+  function loadTimerState() {
+    const savedEndTime = sessionStorage.getItem('lockdownEndTime');
+    const savedActive = sessionStorage.getItem('lockdownActive');
+    
+    if (savedActive === 'true' && savedEndTime) {
+      const savedEnd = parseInt(savedEndTime);
+      const now = Date.now();
+      
+      if (savedEnd > now) {
+        // Resume timer
+        endTime = savedEnd;
+        isLockdownActive = true;
+        container.style.display = 'none';
+        countdownEl.style.display = 'block';
+        requestFullscreen();
+        startCountdown(0, true); // Resume mode
+        enableLockdownMode();
+      } else {
+        // Timer already ended
+        clearLockdownState();
+      }
+    }
+  }
+  
+  function clearLockdownState() {
+    sessionStorage.removeItem('lockdownEndTime');
+    sessionStorage.removeItem('lockdownActive');
+    isLockdownActive = false;
+  }
 
   function formatTime(s) {
     const m = Math.floor(s / 60).toString().padStart(2, '0');
     const sec = (s % 60).toString().padStart(2, '0');
     return `${m}:${sec}`;
   }
-
+  
   function requestFullscreen() {
     const el = document.documentElement;
     if (!document.fullscreenElement) {
-      if (el.requestFullscreen) el.requestFullscreen();
+      if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
       else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
       else if (el.msRequestFullscreen) el.msRequestFullscreen();
     }
   }
+  
+  function showWarning() {
+    warningEl.style.display = 'block';
+    setTimeout(() => {
+      warningEl.style.display = 'none';
+    }, 2000);
+  }
+  
+  function enableLockdownMode() {
+    isLockdownActive = true;
+    
+    // Continuously try to maintain fullscreen
+    forceFullscreenInterval = setInterval(() => {
+      if (isLockdownActive && !document.fullscreenElement) {
+        requestFullscreen();
+        showWarning();
+      }
+    }, 500);
+    
+    // Block common exit methods
+    document.addEventListener('keydown', blockExitKeys);
+    document.addEventListener('contextmenu', blockContextMenu);
+    window.addEventListener('beforeunload', blockPageUnload);
+    window.addEventListener('blur', handleWindowBlur);
+    
+    // Change page title to indicate lockdown
+    document.title = "🔒 LOCKDOWN ACTIVE - " + originalTitle;
+  }
+  
+  function disableLockdownMode() {
+    isLockdownActive = false;
+    clearInterval(forceFullscreenInterval);
+    clearLockdownState();
+    
+    // Remove event listeners
+    document.removeEventListener('keydown', blockExitKeys);
+    document.removeEventListener('contextmenu', blockContextMenu);
+    window.removeEventListener('beforeunload', blockPageUnload);
+    window.removeEventListener('blur', handleWindowBlur);
+    
+    // Restore original title
+    document.title = originalTitle;
+  }
+  
+  function blockExitKeys(e) {
+    if (!isLockdownActive) return;
+    
+    // Block F11, Escape, Alt+F4, Ctrl+W, Ctrl+T, etc.
+    const blockedKeys = ['F11', 'Escape'];
+    const blockedCombos = [
+      e.ctrlKey && (e.key === 'w' || e.key === 'W'),
+      e.ctrlKey && (e.key === 't' || e.key === 'T'),
+      e.ctrlKey && e.shiftKey && (e.key === 'T' || e.key === 't'),
+      e.altKey && e.key === 'F4',
+      e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i'), // Dev tools
+      e.key === 'F12' // Dev tools
+    ];
+    
+    if (blockedKeys.includes(e.key) || blockedCombos.some(combo => combo)) {
+      e.preventDefault();
+      e.stopPropagation();
+      showWarning();
+      requestFullscreen();
+    }
+  }
+  
+  function blockContextMenu(e) {
+    if (isLockdownActive) {
+      e.preventDefault();
+      showWarning();
+    }
+  }
+  
+  function blockPageUnload(e) {
+    if (isLockdownActive) {
+      saveTimerState();
+      // Try to open a new tab with the same page (limited by popup blockers)
+      try {
+        const newWindow = window.open(window.location.href, '_blank');
+        if (newWindow) {
+          newWindow.focus();
+        }
+      } catch (err) {
+        // Popup blocked, but we saved the state
+      }
+      
+      e.preventDefault();
+      e.returnValue = 'Timer is still running! Are you sure you want to exit?';
+      return e.returnValue;
+    }
+  }
+  
+  function handleWindowBlur() {
+    if (isLockdownActive) {
+      setTimeout(() => {
+        window.focus();
+        requestFullscreen();
+      }, 100);
+    }
+  }
 
-  function startCountdown(durationMinutes) {
+  function startCountdown(durationMinutes, resumeMode = false) {
     clearInterval(countdownInterval);
-    endTime = Date.now() + durationMinutes * 60 * 1000;
+    
+    if (!resumeMode) {
+      endTime = Date.now() + durationMinutes * 60 * 1000;
+    }
+    
+    saveTimerState();
     countdownEl.style.display = 'block';
-
+    
     countdownInterval = setInterval(() => {
       const secondsLeft = Math.round((endTime - Date.now()) / 1000);
       if (secondsLeft <= 0) {
         clearInterval(countdownInterval);
         countdownEl.textContent = "00:00";
-        alert("Time's up! You can exit fullscreen now.");
+        disableLockdownMode();
+        
+        // Exit fullscreen
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+          document.webkitExitFullscreen();
+        } else if (document.msExitFullscreen) {
+          document.msExitFullscreen();
+        }
+        
+        alert("Time's up! You can exit now.");
+        
+        // Reset UI
+        setTimeout(() => {
+          container.style.display = 'block';
+          container.style.opacity = 1;
+          countdownEl.style.display = 'none';
+        }, 1000);
       } else {
         countdownEl.textContent = formatTime(secondsLeft);
+        saveTimerState(); // Update state periodically
       }
     }, 250);
   }
@@ -117,29 +301,53 @@
       alert('Please enter a number between 1 and 120');
       return;
     }
+    
     container.style.opacity = 0;
     setTimeout(() => {
       container.style.display = 'none';
       requestFullscreen();
+      enableLockdownMode();
       startCountdown(mins);
     }, 400);
   });
 
+  // Handle fullscreen changes
   document.addEventListener('fullscreenchange', () => {
-    if (!document.fullscreenElement && countdownEl.style.display === 'block' && countdownEl.textContent !== "00:00") {
+    if (!document.fullscreenElement && isLockdownActive && countdownEl.textContent !== "00:00") {
       setTimeout(() => {
         requestFullscreen();
+        showWarning();
+      }, 100);
+    }
+  });
+  
+  document.addEventListener('webkitfullscreenchange', () => {
+    if (!document.webkitFullscreenElement && isLockdownActive && countdownEl.textContent !== "00:00") {
+      setTimeout(() => {
+        requestFullscreen();
+        showWarning();
       }, 100);
     }
   });
 
-  document.addEventListener('keydown', (e) => {
-    if (e.key === "Escape" && countdownEl.style.display === 'block' && countdownEl.textContent !== "00:00") {
-      e.preventDefault();
+  // Load any existing timer state when page loads
+  window.addEventListener('load', loadTimerState);
+  
+  // Handle page visibility changes
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && isLockdownActive) {
       requestFullscreen();
     }
   });
+  
+  // Prevent drag and drop
+  document.addEventListener('dragover', e => {
+    if (isLockdownActive) e.preventDefault();
+  });
+  
+  document.addEventListener('drop', e => {
+    if (isLockdownActive) e.preventDefault();
+  });
 </script>
-
 </body>
 </html>
