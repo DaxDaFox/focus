@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lockdown Timer</title>
+<style>
+  body, html {
+    margin: 0; padding: 0; height: 100%;
+    display: flex; flex-direction: column;
+    justify-content: center; align-items: center;
+    background: #111;
+    color: #eee;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  }
+  #container {
+    text-align: center;
+    transition: opacity 0.4s ease;
+  }
+  label {
+    font-size: 1.5rem;
+    margin-right: 0.5rem;
+    user-select: none;
+  }
+  input[type=number] {
+    font-size: 2.5rem;
+    width: 7rem;
+    padding: 0.3em 0.5em;
+    border: none;
+    border-radius: 12px;
+    text-align: center;
+    background: #2d1a33;
+    color: #f8bbd0;
+    box-shadow: 0 0 6px #f48fb1;
+    outline: none;
+    transition: box-shadow 0.3s ease;
+  }
+  input[type=number]:focus {
+    box-shadow: 0 0 10px #f06292;
+    background: #3e2a48;
+  }
+  button {
+    font-size: 2rem;
+    margin-left: 1rem;
+    padding: 0.3em 1.2em;
+    border-radius: 12px;
+    border: none;
+    background: #f06292;
+    color: white;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.3s ease;
+  }
+  button:hover {
+    background: #ec407a;
+  }
+  #countdown {
+    font-size: 7rem;
+    margin-top: 2rem;
+    user-select: none;
+  }
+</style>
+</head>
+<body>
+
+<div id="container">
+  <label for="minutes">Set time (minutes):</label>
+  <input id="minutes" type="number" min="1" max="120" value="5" />
+  <button id="startBtn">Start</button>
+</div>
+
+<div id="countdown" style="display:none;">00:00</div>
+
+<script>
+  const startBtn = document.getElementById('startBtn');
+  const minutesInput = document.getElementById('minutes');
+  const countdownEl = document.getElementById('countdown');
+  const container = document.getElementById('container');
+  let countdownInterval;
+  let endTime;
+
+  function formatTime(s) {
+    const m = Math.floor(s / 60).toString().padStart(2, '0');
+    const sec = (s % 60).toString().padStart(2, '0');
+    return `${m}:${sec}`;
+  }
+
+  function requestFullscreen() {
+    const el = document.documentElement;
+    if (!document.fullscreenElement) {
+      if (el.requestFullscreen) el.requestFullscreen();
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+      else if (el.msRequestFullscreen) el.msRequestFullscreen();
+    }
+  }
+
+  function startCountdown(durationMinutes) {
+    clearInterval(countdownInterval);
+    endTime = Date.now() + durationMinutes * 60 * 1000;
+    countdownEl.style.display = 'block';
+
+    countdownInterval = setInterval(() => {
+      const secondsLeft = Math.round((endTime - Date.now()) / 1000);
+      if (secondsLeft <= 0) {
+        clearInterval(countdownInterval);
+        countdownEl.textContent = "00:00";
+        alert("Time's up! You can exit fullscreen now.");
+      } else {
+        countdownEl.textContent = formatTime(secondsLeft);
+      }
+    }, 250);
+  }
+
+  startBtn.addEventListener('click', () => {
+    const mins = parseInt(minutesInput.value);
+    if (isNaN(mins) || mins < 1 || mins > 120) {
+      alert('Please enter a number between 1 and 120');
+      return;
+    }
+    container.style.opacity = 0;
+    setTimeout(() => {
+      container.style.display = 'none';
+      requestFullscreen();
+      startCountdown(mins);
+    }, 400);
+  });
+
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && countdownEl.style.display === 'block' && countdownEl.textContent !== "00:00") {
+      setTimeout(() => {
+        requestFullscreen();
+      }, 100);
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === "Escape" && countdownEl.style.display === 'block' && countdownEl.textContent !== "00:00") {
+      e.preventDefault();
+      requestFullscreen();
+    }
+  });
+</script>
+
+</body>
+</html>
